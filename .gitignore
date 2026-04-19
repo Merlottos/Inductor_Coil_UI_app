@@ -1,4 +1,6 @@
 Prompt/
+__pycache__/
+*.pyc
 models/*
 !models/.gitkeep
 !models/README.md
