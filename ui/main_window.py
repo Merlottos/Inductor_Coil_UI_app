@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.class_mapping import ClassMapping
 from core.i18n import I18n
 from core.obb_engine import OBBEngine
 from core.recorder import Recorder
@@ -43,6 +45,8 @@ class MainWindow(QMainWindow):
         self.seg_engine = SegEngine(base_dir / seg_model)
         self.obb_engine = OBBEngine(base_dir / obb_model)
         self.renderer = ViewRenderer()
+        self.class_mapping = ClassMapping()
+        self.renderer.set_class_mapping(self.class_mapping)
         self.recorder = Recorder(base_dir / "data")
         self.review_player = ReviewPlayer()
 
@@ -138,6 +142,24 @@ class MainWindow(QMainWindow):
         self.filter_combo.setCurrentIndex(0)
         self.filter_combo.currentIndexChanged.connect(self.on_filter_changed)
 
+        self.mapping_label = QLabel(self.i18n.t("class_mapping"))
+        self.btn_load_mapping = QPushButton(self.i18n.t("load_class_mapping"))
+        self.btn_load_mapping.clicked.connect(self.on_load_mapping)
+        self.chk_mapping_enable = QCheckBox(self.i18n.t("mapping_enable"))
+        self.chk_mapping_enable.toggled.connect(self.on_toggle_mapping)
+        self.mapping_path = QLineEdit()
+        self.mapping_path.setReadOnly(True)
+        default_mapping = self.base_dir / "configs" / "class_mapping.json"
+        if default_mapping.exists():
+            self.mapping_path.setText(str(default_mapping))
+            try:
+                self.class_mapping.load(default_mapping)
+            except Exception:
+                pass
+
+        self.btn_detect_classes = QPushButton(self.i18n.t("detect_class_names"))
+        self.btn_detect_classes.clicked.connect(self.on_detect_classes)
+
         self.review_slider = QSlider(Qt.Horizontal)
         self.review_slider.setMinimum(0)
         self.review_slider.setMaximum(0)
@@ -168,6 +190,12 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(QLabel(self.i18n.t("filter_mode")))
         right_layout.addWidget(self.filter_combo)
         right_layout.addSpacing(12)
+        right_layout.addWidget(self.mapping_label)
+        right_layout.addWidget(self.mapping_path)
+        right_layout.addWidget(self.btn_load_mapping)
+        right_layout.addWidget(self.btn_detect_classes)
+        right_layout.addWidget(self.chk_mapping_enable)
+        right_layout.addSpacing(12)
         right_layout.addWidget(self.result_badge)
         right_layout.addStretch(1)
 
@@ -197,6 +225,8 @@ class MainWindow(QMainWindow):
             QPushButton { background: #1e2a35; color: #e6edf5; padding: 6px 10px; border-radius: 4px; }
             QPushButton:checked { background: #2b4458; }
             QComboBox { background: #1e2a35; color: #e6edf5; padding: 4px 8px; border-radius: 4px; }
+            QCheckBox { color: #dbe2ea; background: #13171c; }
+            QLineEdit { background: #1e2a35; color: #e6edf5; padding: 4px 6px; border-radius: 4px; }
             QToolBar { background: #0f1216; border-bottom: 1px solid #1d232b; }
             QStatusBar { background: #0f1216; color: #9fb2c3; }
             QSlider::groove:horizontal { height: 4px; background: #1c232a; }
@@ -311,6 +341,44 @@ class MainWindow(QMainWindow):
             self.renderer.set_filter_mode(mode)
 
     @Slot()
+    def on_load_mapping(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.i18n.t("select_mapping_file"),
+            str(self.base_dir / "configs"),
+            f"{self.i18n.t('mapping_files')} (*.json);;All Files (*)",
+        )
+        if file_path:
+            try:
+                self.class_mapping.load(Path(file_path))
+                self.mapping_path.setText(file_path)
+                self.status.showMessage(self.i18n.t("mapping_loaded"))
+            except Exception:
+                self.status.showMessage(self.i18n.t("mapping_load_failed"))
+
+    @Slot(bool)
+    def on_toggle_mapping(self, checked: bool) -> None:
+        self.class_mapping.set_enabled(checked)
+
+    @Slot()
+    def on_detect_classes(self) -> None:
+        try:
+            names = self.seg_engine.get_names()
+            if not names:
+                self.status.showMessage(self.i18n.t("seg_model_missing"))
+                return
+            out_path = self.base_dir / "configs" / "class_mapping.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            self.class_mapping.generate_template(names, out_path)
+            self.mapping_path.setText(str(out_path))
+            class_list = ", ".join(names.values())
+            self.status.showMessage(
+                f"{self.i18n.t('class_names_detected')}: {class_list}"
+            )
+        except Exception:
+            self.status.showMessage(self.i18n.t("mapping_load_failed"))
+
+    @Slot()
     def on_lang_changed(self) -> None:
         self.i18n.set_lang(self.lang_combo.currentData())
         self.btn_source.setText(self.i18n.t("select_source"))
@@ -343,6 +411,10 @@ class MainWindow(QMainWindow):
         self.filter_combo.setItemText(2, self.i18n.t("filter_top1_region"))
         self.filter_combo.setItemText(3, self.i18n.t("filter_top1_frame"))
         self.filter_combo.blockSignals(False)
+        self.mapping_label.setText(self.i18n.t("class_mapping"))
+        self.btn_load_mapping.setText(self.i18n.t("load_class_mapping"))
+        self.btn_detect_classes.setText(self.i18n.t("detect_class_names"))
+        self.chk_mapping_enable.setText(self.i18n.t("mapping_enable"))
 
     @Slot(object)
     def on_frame_ready(self, payload: dict) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import cv2
+import torch
 from PySide6.QtGui import QImage, QPixmap
 
 
@@ -10,16 +11,25 @@ class ViewRenderer:
     def __init__(self) -> None:
         self.filter_mode = "agnostic_nms"
         self.iou_threshold = 0.5
+        self.class_mapping: Any = None
 
     def set_filter_mode(self, mode: str) -> None:
         self.filter_mode = mode
+
+    def set_class_mapping(self, mapping: Any) -> None:
+        self.class_mapping = mapping
 
     def render_raw(self, frame: Any) -> QPixmap:
         return self._to_pixmap(frame)
 
     def render_seg(self, frame: Any, result: Any) -> QPixmap:
         filtered = self._filter_result(result)
-        image = self._draw_seg(frame, filtered)
+        saved = self._save_result_state(filtered)
+        try:
+            self._apply_class_mapping(filtered)
+            image = self._draw_seg(frame, filtered)
+        finally:
+            self._restore_result_state(filtered, saved)
         return self._to_pixmap(image)
 
     def render_obb(self, frame: Any, result: Any) -> QPixmap:
@@ -37,6 +47,32 @@ class ViewRenderer:
         if isinstance(result, dict):
             return self._draw_boxes(frame, result.get("boxes", []))
         return frame
+
+    def _save_result_state(self, result: Any) -> tuple:
+        if result is None:
+            return None
+        boxes = getattr(result, "boxes", None)
+        data = getattr(boxes, "data", None) if boxes is not None else None
+        saved_data = data.clone() if data is not None and hasattr(data, "clone") else None
+        names = getattr(result, "names", None)
+        saved_names = dict(names) if names else None
+        return (saved_data, saved_names)
+
+    def _restore_result_state(self, result: Any, saved: tuple) -> None:
+        if result is None or saved is None:
+            return
+        saved_data, saved_names = saved
+        boxes = getattr(result, "boxes", None)
+        if boxes is not None and saved_data is not None:
+            with torch.inference_mode():
+                boxes.data[:] = saved_data
+        if saved_names is not None:
+            result.names = saved_names
+
+    def _apply_class_mapping(self, result: Any) -> None:
+        if self.class_mapping is None:
+            return
+        self.class_mapping.apply(result)
 
     def _draw_obb(self, frame: Any, result: Any) -> Any:
         return frame

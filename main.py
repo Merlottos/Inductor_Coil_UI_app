@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--obb-model",
         default="models/obb.pt",
-        help="obb model path under UI_app/models (placeholder)",
+        help="obb model path under UI_app/models (placeholder for now)",
     )
     return parser.parse_args()
 

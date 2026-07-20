@@ -30,3 +30,13 @@ class SegEngine:
             self.load()
         results = self.model.predict(frame, verbose=False)
         return results[0] if results else None
+
+    def get_names(self) -> dict[int, str]:
+        if self.model is None:
+            self.load()
+        names = getattr(self.model, "names", None)
+        if isinstance(names, dict):
+            return {int(k): str(v) for k, v in names.items()}
+        if isinstance(names, list):
+            return {i: str(n) for i, n in enumerate(names)}
+        return {}
