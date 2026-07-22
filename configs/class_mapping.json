@@ -1,1 +1,5 @@
-1
+{
+    "Cold_Solder": "Solder_Issue",
+    "Solder_Void": "Solder_Issue",
+    "Normal": "Normal"
+}
