@@ -46,13 +46,13 @@ class ReviewPlayer:
         if self.index >= len(self.items):
             self.index = 0
 
-    def current(self) -> tuple[Any | None, Any | None]:
+    def current(self) -> tuple[Any | None, Any | None, Any | None]:
         if not self.items or self.base_dir is None:
-            return None, None
+            return None, None, None
         item = self.items[self.index]
         image_path = self.base_dir / "images" / item["image"]
         frame = cv2.imread(str(image_path))
-        return frame, item.get("seg")
+        return frame, item.get("seg"), item.get("obb")
 
     def reset(self) -> None:
         self.items = []

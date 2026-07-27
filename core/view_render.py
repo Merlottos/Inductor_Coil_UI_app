@@ -75,6 +75,10 @@ class ViewRenderer:
         self.class_mapping.apply(result)
 
     def _draw_obb(self, frame: Any, result: Any) -> Any:
+        if result is None:
+            return frame
+        if hasattr(result, "plot"):
+            return result.plot()
         return frame
 
     def _filter_result(self, result: Any) -> Any:

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSplitter,
     QStatusBar,
@@ -70,21 +71,30 @@ class MainWindow(QMainWindow):
 
         self.raw_view = QLabel(self.i18n.t("raw_view"))
         self.raw_view.setAlignment(Qt.AlignCenter)
-        self.raw_view.setMinimumSize(480, 360)
+        self.raw_view.setMinimumSize(320, 240)
 
         self.result_view = QLabel(self.i18n.t("result_view"))
         self.result_view.setAlignment(Qt.AlignCenter)
-        self.result_view.setMinimumSize(480, 360)
+        self.result_view.setMinimumSize(400, 240)
+
+        self.obb_view = QLabel(self.i18n.t("obb_view"))
+        self.obb_view.setAlignment(Qt.AlignCenter)
+        self.obb_view.setMinimumSize(400, 240)
 
         self.result_badge = QLabel("")
         self.result_badge.setAlignment(Qt.AlignCenter)
         self.result_badge.setObjectName("resultBadge")
-        self._last_judge: bool | None = None
+        self._last_judge: str = ""
+
+        result_split = QSplitter(Qt.Vertical)
+        result_split.addWidget(self.result_view)
+        result_split.addWidget(self.obb_view)
+        result_split.setSizes([1, 1])
 
         view_split = QSplitter(Qt.Horizontal)
         view_split.addWidget(self.raw_view)
-        view_split.addWidget(self.result_view)
-        view_split.setSizes([1, 1])
+        view_split.addWidget(result_split)
+        view_split.setSizes([1, 2])
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
@@ -199,8 +209,14 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.result_badge)
         right_layout.addStretch(1)
 
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(right_panel)
+        scroll_area.setMinimumWidth(260)
+        scroll_area.setMaximumWidth(360)
+
         root_layout.addWidget(view_split, 4)
-        root_layout.addWidget(right_panel, 1)
+        root_layout.addWidget(scroll_area, 1)
         self.setCentralWidget(central)
 
         toolbar = QToolBar()
@@ -232,6 +248,7 @@ class MainWindow(QMainWindow):
             QSlider::groove:horizontal { height: 4px; background: #1c232a; }
             QSlider::handle:horizontal { width: 12px; background: #4b6b88; margin: -4px 0; }
             QLabel#resultBadge { background: #0f1216; border: none; font-size: 22px; padding: 10px; }
+            QScrollArea { background: #0f1216; border: none; }
             """
         )
 
@@ -402,6 +419,7 @@ class MainWindow(QMainWindow):
             self.camera_combo.addItem(f"{self.i18n.t('camera')} {idx}", str(idx))
         self.raw_view.setText(self.i18n.t("raw_view"))
         self.result_view.setText(self.i18n.t("result_view"))
+        self.obb_view.setText(self.i18n.t("obb_view"))
         self.result_badge.setText(self._format_badge_text(self._last_judge))
         self.seg_model_label.setText(self.i18n.t("seg_model"))
         self.obb_model_label.setText(self.i18n.t("obb_model"))
@@ -428,9 +446,11 @@ class MainWindow(QMainWindow):
         self.video_worker.cache_last(frame, seg_result, obb_result)
         raw_view = self.renderer.render_raw(frame)
         result_view = self.renderer.render_seg(frame, seg_result)
+        obb_view = self.renderer.render_obb(frame, obb_result)
         self.raw_view.setPixmap(raw_view)
         self.result_view.setPixmap(result_view)
-        self._update_judge(seg_result)
+        self.obb_view.setPixmap(obb_view)
+        self._update_judge(seg_result, obb_result)
         self.recorder.write(frame, seg_result, obb_result)
 
     @Slot(str)
@@ -446,14 +466,16 @@ class MainWindow(QMainWindow):
             self.review_slider.setValue(self.review_player.index)
             self.review_slider.blockSignals(False)
 
-        frame, seg_result = self.review_player.current()
+        frame, seg_result, obb_result = self.review_player.current()
         if frame is None:
             return
         raw_view = self.renderer.render_raw(frame)
         result_view = self.renderer.render_seg(frame, seg_result)
+        obb_view = self.renderer.render_obb(frame, None)
         self.raw_view.setPixmap(raw_view)
         self.result_view.setPixmap(result_view)
-        self._update_judge(seg_result)
+        self.obb_view.setPixmap(obb_view)
+        self._update_judge(seg_result, obb_result)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.video_worker is not None:
@@ -474,46 +496,72 @@ class MainWindow(QMainWindow):
         self.video_worker.status_ready.connect(self.on_status_ready)
         self.video_worker.start()
 
-    def _update_judge(self, seg_result: object) -> None:
-        is_pass = self._is_all_normal(seg_result)
-        self._last_judge = is_pass
-        if is_pass is None:
+    def _update_judge(self, seg_result: object, obb_result: object) -> None:
+        seg_ok, seg_norm, seg_total, seg_non = self._inspect_result(seg_result)
+        obb_ok, obb_norm, obb_total, obb_non = self._inspect_result(obb_result)
+
+        # both models detected nothing → no badge
+        if not seg_ok and not obb_ok:
+            self._last_judge = ""
             self.result_badge.setText("")
             self.result_badge.setStyleSheet("color: #9fb2c3;")
             return
-        if is_pass:
-            self.result_badge.setText(self._format_badge_text(True))
+
+        # one model blind → fail
+        if not seg_ok or not obb_ok:
+            self._last_judge = "fail"
+            self.result_badge.setText(self._format_badge_text("fail"))
+            self.result_badge.setStyleSheet("color: #e74c3c;")
+            return
+
+        # both models see something → evaluate
+        seg_perfect = not seg_non and seg_norm == 4
+        obb_perfect = not obb_non and obb_norm == 2
+
+        if seg_perfect and obb_perfect:
+            self._last_judge = "pass"
+            self.result_badge.setText(self._format_badge_text("pass"))
             self.result_badge.setStyleSheet("color: #2ecc71;")
+        elif not seg_non and not obb_non:
+            self._last_judge = "manual_check"
+            self.result_badge.setText(self._format_badge_text("manual_check"))
+            self.result_badge.setStyleSheet("color: #f0c040;")
         else:
-            self.result_badge.setText(self._format_badge_text(False))
+            self._last_judge = "fail"
+            self.result_badge.setText(self._format_badge_text("fail"))
             self.result_badge.setStyleSheet("color: #e74c3c;")
 
-    def _format_badge_text(self, is_pass: bool | None = None) -> str:
-        if is_pass is None:
+    def _format_badge_text(self, kind: str) -> str:
+        if not kind:
             return ""
-        symbol = "√" if is_pass else "x"
-        text = self.i18n.t("pass") if is_pass else self.i18n.t("fail")
-        return f"{symbol} {text}"
+        if kind == "pass":
+            return f"√ {self.i18n.t('pass')}"
+        if kind == "manual_check":
+            return f"! {self.i18n.t('manual_check')}"
+        return f"x {self.i18n.t('fail')}"
 
-    def _is_all_normal(self, seg_result: object) -> bool | None:
-        if seg_result is None:
-            return None
-        names = getattr(seg_result, "names", None)
-        boxes = getattr(seg_result, "boxes", None)
-        if names is None or boxes is None:
-            return None
-        cls = getattr(boxes, "cls", None)
+    def _inspect_result(self, result: object) -> tuple[bool, int, int, bool]:
+        if result is None:
+            return False, 0, 0, False
+        names = getattr(result, "names", None)
+        detections = getattr(result, "boxes", None) or getattr(result, "obb", None)
+        if names is None or detections is None:
+            return False, 0, 0, False
+        cls = getattr(detections, "cls", None)
         if cls is None:
-            return None
+            return False, 0, 0, False
         indices = cls.tolist()
         if not indices:
-            return None
+            return False, 0, 0, False
+        total = len(indices)
+        normal_count = 0
         for idx in indices:
             name = ""
             if isinstance(names, dict):
                 name = names.get(int(idx), "")
             elif isinstance(names, list) and int(idx) < len(names):
                 name = names[int(idx)]
-            if name.strip().lower() != "normal":
-                return False
-        return True
+            if name.strip().lower() == "normal":
+                normal_count += 1
+        has_non_normal = normal_count < total
+        return True, normal_count, total, has_non_normal
