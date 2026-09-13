@@ -1,5 +1,10 @@
 {
-    "Cold_Solder": "Solder_Issue",
-    "Solder_Void": "Solder_Issue",
-    "Normal": "Normal"
+    "Normal": "Normal",
+    "No_Silver_Plating": "No_Silver_Plating",
+    "Cold_Solder": "Cold_Solder",
+    "Solder_Void": "Solder_Void",
+    "No_Solder": "No_Solder",
+    "Core_Scratch_from_Grinding": "Core_Scratch_from_Grinding",
+    "Glue_on_PAD": "Glue_on_PAD",
+    "Damaged_Core": "Damaged_Core"
 }

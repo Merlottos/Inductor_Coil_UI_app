@@ -14,6 +14,46 @@ class I18n:
     def t(self, key: str) -> str:
         return _TEXT.get(self.lang, {}).get(key, key)
 
+    def t_class(self, name: str) -> str:
+        if self.lang == "zh":
+            return _CLASS_EN_TO_ZH.get(name, name)
+        return _CLASS_ZH_TO_EN.get(name, name)
+
+
+# 电感线圈数据集分类中英文对照（来源：docs/中英文对照.txt）
+_CLASS_EN_TO_ZH = {
+    "Normal": "正常",
+    "Broken_Wire": "断线",
+    "Core_Scratch_from_Grinding": "打磨打到铁芯",
+    "Damaged_Core": "铁芯破损",
+    "Wrong_Orientation": "反料",
+    "Cold_Solder": "假焊",
+    "No_Solder": "没焊锡",
+    "Wire_Damage": "铜线伤",
+    "Glue_on_PAD": "PAD粘胶",
+    "Wrong_Coil_Count": "(铜线)少圈多圈",
+    "Solder_Void": "锡洞",
+    "No_Silver_Plating": "无镀银层",
+    "Warped_Cover": "翘盖",
+    "No_Base": "无base",
+    "Damaged_Base": "base破损",
+    "Back_Wire": "背线",
+    "Foreign_Object_at_Bottom": "底部有异物",
+    "Broken_Center_Pillar": "中柱断",
+    "Crossed_Wire": "交叉",
+    "Wire_Insulation_Damage": "铜线破皮",
+    "Solder_Ball": "锡珠",
+    "Large_Solder_Blob": "锡包大",
+    "Excess_Glue": "胶多",
+    "Chipped": "崩缺",
+    "Insufficient_Glue_in_Center": "中间胶少",
+    "Mixed_Material": "混料",
+    "Assembly_Defect": "组装不良",
+    "Soldering_Defect": "焊锡不良",
+}
+
+_CLASS_ZH_TO_EN = {zh: en for en, zh in _CLASS_EN_TO_ZH.items()}
+
 
 _TEXT = {
     "zh": {
@@ -69,6 +109,8 @@ _TEXT = {
         "detect_class_names": "从模型检测类别",
         "class_names_detected": "检测到类别",
         "template_generated": "模板已生成",
+        "detected_classes": "识别到的类别",
+        "no_detection": "未识别到目标",
     },
     "en": {
         "seg_view": "Seg View",
@@ -123,5 +165,7 @@ _TEXT = {
         "detect_class_names": "Detect Classes from Model",
         "class_names_detected": "Detected classes",
         "template_generated": "Template generated",
+        "detected_classes": "Detected Classes",
+        "no_detection": "No targets detected",
     },
 }

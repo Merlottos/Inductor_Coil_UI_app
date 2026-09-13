@@ -32,6 +32,13 @@ from core.video_worker import VideoWorker
 from core.view_render import ViewRenderer
 
 
+# ── 界面可见性开关（在此处调整是否显示以下控件）────────────────────────────
+# True = 显示该选项；False = 在界面上隐藏（控件仍在代码中可用，可随时改回）
+SHOW_SEG_MODEL_SELECTOR = False   # 分割模型选择（标签 / 路径 / 按钮）
+SHOW_OBB_MODEL_SELECTOR = False   # OBB 模型选择（标签 / 路径 / 按钮）
+SHOW_MAPPING_LOADER = False       # 加载映射文件选项（标签 / 路径 / 按钮）
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self, base_dir: Path, source: str, seg_model: str, obb_model: str
@@ -85,6 +92,15 @@ class MainWindow(QMainWindow):
         self.result_badge.setAlignment(Qt.AlignCenter)
         self.result_badge.setObjectName("resultBadge")
         self._last_judge: str = ""
+
+        self.class_stats_title = QLabel(self.i18n.t("detected_classes"))
+        self.class_stats_title.setObjectName("classStatsTitle")
+        self.class_stats_label = QLabel(self.i18n.t("no_detection"))
+        self.class_stats_label.setObjectName("classStats")
+        self.class_stats_label.setWordWrap(True)
+        self.class_stats_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self._last_seg_result: object = None
+        self._last_obb_result: object = None
 
         result_split = QSplitter(Qt.Vertical)
         result_split.addWidget(self.result_view)
@@ -185,12 +201,14 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.btn_record)
         right_layout.addWidget(self.btn_snapshot)
         right_layout.addSpacing(12)
-        right_layout.addWidget(self.seg_model_label)
-        right_layout.addWidget(self.seg_model_path)
-        right_layout.addWidget(self.btn_seg_model)
-        right_layout.addWidget(self.obb_model_label)
-        right_layout.addWidget(self.obb_model_path)
-        right_layout.addWidget(self.btn_obb_model)
+        if SHOW_SEG_MODEL_SELECTOR:
+            right_layout.addWidget(self.seg_model_label)
+            right_layout.addWidget(self.seg_model_path)
+            right_layout.addWidget(self.btn_seg_model)
+        if SHOW_OBB_MODEL_SELECTOR:
+            right_layout.addWidget(self.obb_model_label)
+            right_layout.addWidget(self.obb_model_path)
+            right_layout.addWidget(self.btn_obb_model)
         right_layout.addSpacing(12)
         right_layout.addWidget(QLabel(self.i18n.t("review")))
         right_layout.addWidget(self.btn_load_review)
@@ -200,11 +218,15 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(QLabel(self.i18n.t("filter_mode")))
         right_layout.addWidget(self.filter_combo)
         right_layout.addSpacing(12)
-        right_layout.addWidget(self.mapping_label)
-        right_layout.addWidget(self.mapping_path)
-        right_layout.addWidget(self.btn_load_mapping)
+        if SHOW_MAPPING_LOADER:
+            right_layout.addWidget(self.mapping_label)
+            right_layout.addWidget(self.mapping_path)
+            right_layout.addWidget(self.btn_load_mapping)
         right_layout.addWidget(self.btn_detect_classes)
         right_layout.addWidget(self.chk_mapping_enable)
+        right_layout.addSpacing(12)
+        right_layout.addWidget(self.class_stats_title)
+        right_layout.addWidget(self.class_stats_label)
         right_layout.addSpacing(12)
         right_layout.addWidget(self.result_badge)
         right_layout.addStretch(1)
@@ -247,6 +269,8 @@ class MainWindow(QMainWindow):
             QStatusBar { background: #0f1216; color: #9fb2c3; }
             QSlider::groove:horizontal { height: 4px; background: #1c232a; }
             QSlider::handle:horizontal { width: 12px; background: #4b6b88; margin: -4px 0; }
+            QLabel#classStatsTitle { background: #13171c; border: none; color: #9fb2c3; font-size: 14px; padding: 2px; }
+            QLabel#classStats { background: #13171c; border: 1px solid #20262e; border-radius: 4px; color: #7fd1ff; font-size: 17px; font-weight: 600; padding: 8px; }
             QLabel#resultBadge { background: #0f1216; border: none; font-size: 22px; padding: 10px; }
             QScrollArea { background: #0f1216; border: none; }
             """
@@ -433,6 +457,8 @@ class MainWindow(QMainWindow):
         self.btn_load_mapping.setText(self.i18n.t("load_class_mapping"))
         self.btn_detect_classes.setText(self.i18n.t("detect_class_names"))
         self.chk_mapping_enable.setText(self.i18n.t("mapping_enable"))
+        self.class_stats_title.setText(self.i18n.t("detected_classes"))
+        self._update_class_stats(self._last_seg_result, self._last_obb_result)
 
     @Slot(object)
     def on_frame_ready(self, payload: dict) -> None:
@@ -451,6 +477,7 @@ class MainWindow(QMainWindow):
         self.result_view.setPixmap(result_view)
         self.obb_view.setPixmap(obb_view)
         self._update_judge(seg_result, obb_result)
+        self._update_class_stats(seg_result, obb_result)
         self.recorder.write(frame, seg_result, obb_result)
 
     @Slot(str)
@@ -476,6 +503,7 @@ class MainWindow(QMainWindow):
         self.result_view.setPixmap(result_view)
         self.obb_view.setPixmap(obb_view)
         self._update_judge(seg_result, obb_result)
+        self._update_class_stats(seg_result, obb_result)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.video_worker is not None:
@@ -565,3 +593,43 @@ class MainWindow(QMainWindow):
                 normal_count += 1
         has_non_normal = normal_count < total
         return True, normal_count, total, has_non_normal
+
+    def _update_class_stats(self, seg_result: object, obb_result: object) -> None:
+        self._last_seg_result = seg_result
+        self._last_obb_result = obb_result
+        counts: dict[str, int] = {}
+        for result in (seg_result, obb_result):
+            for name, count in self._collect_class_counts(result).items():
+                counts[name] = counts.get(name, 0) + count
+        if not counts:
+            self.class_stats_label.setText(self.i18n.t("no_detection"))
+            return
+        self.class_stats_label.setText(
+            "\n".join(f"{name}: {count}" for name, count in counts.items())
+        )
+
+    def _collect_class_counts(self, result: object) -> dict[str, int]:
+        if result is None:
+            return {}
+        names = getattr(result, "names", None)
+        detections = getattr(result, "boxes", None) or getattr(result, "obb", None)
+        if names is None or detections is None:
+            return {}
+        cls = getattr(detections, "cls", None)
+        if cls is None:
+            return {}
+        counts: dict[str, int] = {}
+        for idx in cls.tolist():
+            name = self._resolve_class_name(names, int(idx))
+            counts[name] = counts.get(name, 0) + 1
+        return counts
+
+    def _resolve_class_name(self, names: object, idx: int) -> str:
+        name = str(idx)
+        if isinstance(names, dict):
+            name = str(names.get(idx, idx))
+        elif isinstance(names, list) and idx < len(names):
+            name = str(names[idx])
+        if self.class_mapping.enabled:
+            name = self.class_mapping.mapping.get(name, name)
+        return self.i18n.t_class(name)
